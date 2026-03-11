@@ -841,6 +841,19 @@
 
 <body>
   <div class="app">
+    <!-- Broadcast Banner -->
+    <div id="broadcast-banner"
+      style="display: none; background: rgba(99,102,241,0.1); border-bottom: 1px solid var(--border); padding: 12px 20px; color: var(--text-primary); align-items: center; justify-content: space-between;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="color: var(--primary);">📢</span>
+        <span id="broadcast-text" style="font-weight: 500;"></span>
+      </div>
+      <button id="broadcast-edit-btn"
+        style="display: none; background: transparent; border: 1px solid var(--border); color: var(--text-secondary); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; transition: background 0.2s;"
+        onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'"
+        onclick="editBroadcast()">Edit</button>
+    </div>
+
     <!-- Header -->
     <div class="header">
       <div class="header-left">
@@ -905,13 +918,14 @@
     const STATUSES = ['empty', 'in-progress', 'completed'];
     const STATUS_LABELS = { empty: '—', 'in-progress': 'In Progress', completed: 'Completed' };
 
-    const API_URL = 'https://script.google.com/macros/s/AKfycbzTi7AE6mNkp-A5zFIl8t64KFdkg6bRBppATf-t-EGxYKRXtHt3GQs_9PmhcG4btzjs3g/exec';
+    const API_URL = 'https://script.google.com/macros/s/AKfycbwAl9HChtxrHj4c8qM1RdwCzoaMIRGcLgBKknjvakgyO2ocIfn9H6BiNcc_9g_rls5FfQ/exec';
 
     // ── State ──
     let currentDate = new Date();
     let activeTab = 'overview'; // 'overview' or member name
     let activeDropdownIdx = null;
     let activeDropdownType = null; // 'status' or 'type'
+    let globalBroadcastMessage = "";
 
     // ── Storage ──
     let appDataCache = {};
@@ -1002,6 +1016,40 @@
         });
     }
 
+    function saveBroadcast(msg) {
+      isSyncing = true;
+      setSyncStatus('syncing');
+
+      const payload = {
+        date: dateKey(currentDate),
+        member: 'Kobus',
+        tasks: [], // Sending empty tasks array so it doesn't overwrite data
+        broadcast: msg
+      };
+
+      fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify(payload)
+      })
+        .then(res => res.json())
+        .then(json => {
+          isSyncing = false;
+          if (json.status === 'success') {
+            setSyncStatus('synced');
+            globalBroadcastMessage = msg;
+            renderBroadcast();
+          } else setSyncStatus('error');
+        })
+        .catch(err => {
+          console.error("Broadcast sync error:", err);
+          isSyncing = false;
+          setSyncStatus('error');
+        });
+    }
+
     async function loadDateFromAPI(date) {
       setSyncStatus('syncing');
 
@@ -1015,6 +1063,9 @@
         const json = await res.json();
 
         if (json.status === 'success' && json.data) {
+          if (json.broadcast !== undefined) {
+            globalBroadcastMessage = json.broadcast;
+          }
           json.data.forEach(row => {
             const memberSlots = appDataCache[row.member];
             if (memberSlots) {
@@ -1053,6 +1104,23 @@
     }
 
     // ── Render ──
+    function renderBroadcast() {
+      const banner = document.getElementById('broadcast-banner');
+      const text = document.getElementById('broadcast-text');
+      const btn = document.getElementById('broadcast-edit-btn');
+
+      if (globalBroadcastMessage || activeTab === 'Kobus') {
+        banner.style.display = 'flex';
+        text.innerText = globalBroadcastMessage || "No broadcast message active.";
+        if (!globalBroadcastMessage) text.style.color = "var(--text-muted)";
+        else text.style.color = "var(--text-primary)";
+      } else {
+        banner.style.display = 'none';
+      }
+
+      btn.style.display = activeTab === 'Kobus' ? 'block' : 'none';
+    }
+
     function updateDateDisplay() {
       const el = document.getElementById('date-display');
       el.textContent = formatDate(currentDate);
@@ -1235,6 +1303,7 @@
         initGlobalDropdowns();
       }
       updateDateDisplay();
+      renderBroadcast();
       renderTabs();
       updateStats();
       if (activeTab === 'overview') {
@@ -1245,6 +1314,13 @@
     }
 
     // ── Handlers ──
+    function editBroadcast() {
+      const newMsg = prompt("Enter new broadcast message (leave empty to clear):", globalBroadcastMessage);
+      if (newMsg !== null) {
+        saveBroadcast(newMsg);
+      }
+    }
+
     function escapeHtml(str) {
       return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
