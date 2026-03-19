@@ -1,150 +1,1535 @@
-function doPost(e) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  
-  // Create output
-  let result = { status: "success" };
-  
-  try {
-    const data = JSON.parse(e.postData.contents);
-    const date = data.date;
-    const member = data.member;
-    const tasks = data.tasks; // Array of {time, task, status, notes}
-    if (!date || !member || !tasks) {
-      throw new Error("Missing required parameters: date, member, tasks");
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Team Task Tracker — Daily timeline and activity tracker for team members">
+  <title>Team Task Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *,
+    *::before,
+    *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
     }
 
-    // Handle global broadcast message update
-    const broadcast = data.broadcast;
-    if (broadcast !== undefined) {
-      PropertiesService.getScriptProperties().setProperty('broadcast', broadcast);
+    :root {
+      --bg-primary: #0f1117;
+      --bg-secondary: #161822;
+      --bg-card: rgba(255, 255, 255, 0.04);
+      --bg-glass: rgba(255, 255, 255, 0.06);
+      --bg-hover: rgba(255, 255, 255, 0.08);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-active: rgba(99, 102, 241, 0.5);
+      --text-primary: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --accent: #6366f1;
+      --accent-light: #818cf8;
+      --accent-glow: rgba(99, 102, 241, 0.25);
+      --success: #22c55e;
+      --success-bg: rgba(34, 197, 94, 0.12);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.12);
+      --pending: #64748b;
+      --pending-bg: rgba(100, 116, 139, 0.12);
+      --meeting: #3b82f6;
+      --meeting-bg: rgba(59, 130, 246, 0.12);
+      --training: #a855f7;
+      --training-bg: rgba(168, 85, 247, 0.12);
+      --loading: #06b6d4;
+      --loading-bg: rgba(6, 182, 212, 0.12);
+      --daily-task: #f97316;
+      --daily-task-bg: rgba(249, 115, 22, 0.12);
+      --review: #ec4899;
+      --review-bg: rgba(236, 72, 153, 0.12);
+      --danger: #ef4444;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+      --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
-    // 1. Find and delete existing rows for this date + member combination
-    const dataRange = sheet.getDataRange();
-    const values = dataRange.getValues(); // Use raw values instead of formatted
-    const rowsToDelete = [];
-    
-    // Skip header row (i = 0)
-    for (let i = 1; i < values.length; i++) {
-      let rDate = values[i][0];
-      
-      // Force Google Sheet date objects or strings into strict YYYY-MM-DD
-      if (rDate instanceof Date) {
-        const y = rDate.getFullYear();
-        const m = String(rDate.getMonth() + 1).padStart(2, '0');
-        const d = String(rDate.getDate()).padStart(2, '0');
-        rDate = `${y}-${m}-${d}`;
-      } else {
-        rDate = String(rDate).replace(/^'/, '').trim();
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Ambient background glow */
+    body::before {
+      content: '';
+      position: fixed;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: radial-gradient(ellipse at 30% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 70% 80%, rgba(139, 92, 246, 0.06) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, var(--accent), #a855f7);
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .header h1 span {
+      color: var(--accent-light);
+    }
+
+    /* Date Navigation */
+    .date-nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 6px;
+      backdrop-filter: blur(12px);
+    }
+
+    .date-nav button {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: var(--transition);
+      font-size: 18px;
+    }
+
+    .date-nav button:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    .date-nav .date-display {
+      font-weight: 600;
+      font-size: 0.9rem;
+      padding: 0 12px;
+      min-width: 160px;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .date-nav .date-display:hover {
+      color: var(--accent-light);
+    }
+
+    .date-input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Tabs */
+    .tabs-container {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 24px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .tabs-container::-webkit-scrollbar {
+      height: 4px;
+    }
+
+    .tabs-container::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .tabs-container::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 2px;
+    }
+
+    .tab {
+      padding: 10px 20px;
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      transition: var(--transition);
+      white-space: nowrap;
+      backdrop-filter: blur(8px);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .tab::before {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--accent), #a855f7);
+      transition: var(--transition);
+      border-radius: 1px;
+    }
+
+    .tab:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    .tab.active {
+      background: rgba(99, 102, 241, 0.1);
+      border-color: var(--border-active);
+      color: var(--accent-light);
+      font-weight: 600;
+      box-shadow: 0 0 16px var(--accent-glow);
+    }
+
+    .tab.active::before {
+      width: 60%;
+    }
+
+    .tab .task-count {
+      display: inline-block;
+      margin-left: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-size: 0.7rem;
+      font-weight: 600;
+    }
+
+    .tab.active .task-count {
+      background: rgba(99, 102, 241, 0.25);
+    }
+
+    /* Stats bar */
+    .stats-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .stat-card {
+      flex: 1;
+      min-width: 140px;
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      backdrop-filter: blur(12px);
+    }
+
+    .stat-card .stat-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+    }
+
+    .stat-card .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+
+    .stat-card.accent .stat-value {
+      color: var(--accent-light);
+    }
+
+    .stat-card.success .stat-value {
+      color: var(--success);
+    }
+
+    .stat-card.warning .stat-value {
+      color: var(--warning);
+    }
+
+    /* Timeline */
+    .timeline-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow);
+    }
+
+    .timeline-header {
+      display: grid;
+      grid-template-columns: 90px 1fr 130px 130px 50px;
+      gap: 0;
+      padding: 14px 20px;
+      background: rgba(255, 255, 255, 0.02);
+      border-bottom: 1px solid var(--border);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+
+    .timeline-row {
+      display: grid;
+      grid-template-columns: 90px 1fr 130px 130px 50px;
+      gap: 0;
+      padding: 4px 20px;
+      min-height: 72px;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      transition: var(--transition);
+      position: relative;
+    }
+
+    .timeline-row:hover {
+      background: var(--bg-hover);
+    }
+
+    .timeline-row:last-child {
+      border-bottom: none;
+    }
+
+    /* Current hour highlight */
+    .timeline-row.current-hour {
+      background: rgba(99, 102, 241, 0.06);
+      border-left: 3px solid var(--accent);
+      padding-left: 17px;
+    }
+
+    .timeline-row.current-hour::after {
+      content: 'NOW';
+      position: absolute;
+      right: 60px;
+      top: 4px;
+      font-size: 0.6rem;
+      font-weight: 700;
+      color: var(--accent-light);
+      background: rgba(99, 102, 241, 0.15);
+      padding: 2px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.08em;
+    }
+
+    .time-cell {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .task-cell textarea,
+    .notes-cell textarea {
+      width: 100%;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 0.85rem;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      transition: var(--transition);
+      outline: none;
+      resize: none;
+      overflow: hidden;
+      min-height: 44px;
+      line-height: 1.55;
+      display: block;
+    }
+
+    .task-cell textarea:hover,
+    .notes-cell textarea:hover {
+      border-color: var(--border);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .task-cell textarea:focus,
+    .notes-cell textarea:focus {
+      border-color: var(--border-active);
+      background: rgba(99, 102, 241, 0.05);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    .task-cell textarea::placeholder,
+    .notes-cell textarea::placeholder {
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    /* Status dropdown */
+    .status-cell,
+    .type-cell {
+      position: relative;
+    }
+
+    .status-badge,
+    .type-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: var(--transition);
+      border: 1px solid transparent;
+      user-select: none;
+    }
+
+    .status-badge:hover,
+    .type-badge:hover {
+      filter: brightness(1.2);
+    }
+
+    .status-badge .dot,
+    .type-badge .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+    }
+
+    .status-badge.empty,
+    .type-badge.empty {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px dashed var(--border);
+    }
+
+    .status-badge.empty .dot,
+    .type-badge.empty .dot {
+      background: var(--text-muted);
+      opacity: 0.4;
+    }
+
+    .status-badge.in-progress {
+      background: var(--warning-bg);
+      color: var(--warning);
+    }
+
+    .status-badge.in-progress .dot {
+      background: var(--warning);
+      animation: pulse 1.5s infinite;
+    }
+
+    .status-badge.completed {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+
+    .status-badge.completed .dot {
+      background: var(--success);
+    }
+
+    /* Type badges */
+    .type-badge.daily-task {
+      background: var(--daily-task-bg);
+      color: var(--daily-task);
+    }
+
+    .type-badge.daily-task .dot {
+      background: var(--daily-task);
+    }
+
+    .type-badge.meeting {
+      background: var(--meeting-bg);
+      color: var(--meeting);
+    }
+
+    .type-badge.meeting .dot {
+      background: var(--meeting);
+    }
+
+    .type-badge.training {
+      background: var(--training-bg);
+      color: var(--training);
+    }
+
+    .type-badge.training .dot {
+      background: var(--training);
+    }
+
+    .type-badge.loading {
+      background: var(--loading-bg);
+      color: var(--loading);
+    }
+
+    .type-badge.loading .dot {
+      background: var(--loading);
+      animation: pulse 1.5s infinite;
+    }
+
+    .type-badge.review {
+      background: var(--review-bg);
+      color: var(--review);
+    }
+
+    .type-badge.review .dot {
+      background: var(--review);
+    }
+
+    .type-badge.testing {
+      background: rgba(245, 158, 11, 0.1);
+      color: #f59e0b;
+    }
+
+    .type-badge.testing .dot {
+      background: #f59e0b;
+    }
+
+    .type-badge.creating-video {
+      background: rgba(239, 68, 68, 0.1);
+      color: #ef4444;
+    }
+
+    .type-badge.creating-video .dot {
+      background: #ef4444;
+    }
+
+    .type-badge.editing-video {
+      background: rgba(139, 92, 246, 0.1);
+      color: #8b5cf6;
+    }
+
+    .type-badge.editing-video .dot {
+      background: #8b5cf6;
+    }
+
+    .type-badge.support {
+      background: rgba(16, 185, 129, 0.1);
+      color: #10b981;
+    }
+
+    .type-badge.support .dot {
+      background: #10b981;
+    }
+
+    .type-badge.lunch {
+      background: rgba(251, 191, 36, 0.15);
+      color: #d97706;
+    }
+
+    .type-badge.lunch .dot {
+      background: #d97706;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
       }
-      
-      let rMember = String(values[i][1]).replace(/^'/, '').trim();
 
-      if (rDate === date && rMember === member) {
-        rowsToDelete.push(i + 1); // +1 because row index is 1-based in Sheets
+      50% {
+        opacity: 0.4;
       }
     }
-    
-    // Delete from bottom up to avoid shifting index issues
-    for (let i = rowsToDelete.length - 1; i >= 0; i--) {
-      sheet.deleteRow(rowsToDelete[i]);
+
+    .status-dropdown {
+      position: fixed;
+      z-index: 1000;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 4px;
+      box-shadow: var(--shadow);
+      display: none;
+      min-width: 140px;
     }
 
-    // 2. Insert the new tasks, prefixing date and time with ' so Sheets treats them as pure text
-    // Expected Columns: A=Date, B=Member, C=Time, D=Task, E=Type, F=Status, G=Notes
-    const newRows = tasks.map(t => ["'" + date, member, "'" + t.time, t.task, t.type || 'empty', t.status || 'empty', t.notes || '']);
-    
-    if (newRows.length > 0) {
-      sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 7).setValues(newRows);
-    }
-    
-    
-  } catch (error) {
-    result = { status: "error", message: error.toString() };
-  }
-
-  return ContentService.createTextOutput(JSON.stringify(result))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-function doGet(e) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  let result = { status: "success", data: [], broadcast: "" };
-
-  try {
-    result.broadcast = PropertiesService.getScriptProperties().getProperty('broadcast') || '';
-    
-    const date = e.parameter.date;
-    const member = e.parameter.member;
-
-    if (!date) {
-      throw new Error("Missing required parameter: date");
+    .status-dropdown.show {
+      display: block;
+      animation: fadeIn 0.15s ease;
     }
 
-    const dataRange = sheet.getDataRange();
-    const values = dataRange.getValues();
-    
-    // Expected Columns: A=Date, B=Member, C=Time, D=Task, E=Type, F=Status, G=Notes
-    // Start i = 1 to skip header row
-    for (let i = 1; i < values.length; i++) {
-      let rDate = values[i][0];
-      
-      // Force Google Sheet date objects or strings into strict YYYY-MM-DD
-      if (rDate instanceof Date) {
-        const y = rDate.getFullYear();
-        const m = String(rDate.getMonth() + 1).padStart(2, '0');
-        const d = String(rDate.getDate()).padStart(2, '0');
-        rDate = `${y}-${m}-${d}`;
-      } else {
-        rDate = String(rDate).replace(/^'/, '').trim();
+    .status-dropdown .option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      transition: var(--transition);
+    }
+
+    .status-dropdown .option:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(-4px);
       }
-      
-      let rMember = String(values[i][1]).replace(/^'/, '').trim();
 
-      if (rDate === date && (!member || rMember === member)) {
-        
-        let rTime = values[i][2];
-        if (rTime instanceof Date) {
-          const hours = String(rTime.getHours()).padStart(2, '0');
-          const minutes = String(rTime.getMinutes()).padStart(2, '0');
-          rTime = `${hours}:${minutes}`;
-        } else {
-          rTime = String(rTime).replace(/^'/, '').trim();
-        }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
 
-        result.data.push({
-          member: rMember,
-          time: rTime,
-          task: values[i][3],
-          type: values[i][4],
-          status: values[i][5],
-          notes: values[i][6]
+    /* Delete button */
+    .delete-cell {
+      display: flex;
+      justify-content: center;
+    }
+
+    .delete-btn {
+      width: 30px;
+      height: 30px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: var(--transition);
+      opacity: 0;
+      font-size: 16px;
+    }
+
+    .timeline-row:hover .delete-btn {
+      opacity: 1;
+    }
+
+    .delete-btn:hover {
+      background: rgba(239, 68, 68, 0.12);
+      color: var(--danger);
+    }
+
+    /* Overview tab */
+    .overview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+    }
+
+    .member-overview-card {
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      backdrop-filter: blur(12px);
+      transition: var(--transition);
+      cursor: pointer;
+    }
+
+    .member-overview-card:hover {
+      border-color: var(--border-active);
+      box-shadow: 0 0 20px var(--accent-glow);
+      transform: translateY(-2px);
+    }
+
+    .member-overview-card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .member-overview-card .avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.8rem;
+      color: #fff;
+    }
+
+    .member-overview-card .mini-stats {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .member-overview-card .mini-stat {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .member-overview-card .mini-stat strong {
+      display: block;
+      font-size: 1.1rem;
+      color: var(--text-primary);
+    }
+
+    .member-overview-card .task-preview {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+
+    .member-overview-card .task-preview .preview-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+    }
+
+    .member-overview-card .task-preview .preview-time {
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      font-weight: 500;
+      min-width: 45px;
+    }
+
+    /* Avatar colors */
+    .avatar-0 {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    }
+
+    .avatar-1 {
+      background: linear-gradient(135deg, #ec4899, #f43f5e);
+    }
+
+    .avatar-2 {
+      background: linear-gradient(135deg, #14b8a6, #06b6d4);
+    }
+
+    .avatar-3 {
+      background: linear-gradient(135deg, #f59e0b, #ef4444);
+    }
+
+    .avatar-4 {
+      background: linear-gradient(135deg, #8b5cf6, #6366f1);
+    }
+
+    .avatar-5 {
+      background: linear-gradient(135deg, #22c55e, #14b8a6);
+    }
+
+    .avatar-6 {
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+    }
+
+    .avatar-7 {
+      background: linear-gradient(135deg, #f43f5e, #ec4899);
+    }
+
+    .avatar-8 {
+      background: linear-gradient(135deg, #06b6d4, #3b82f6);
+    }
+
+    .avatar-9 {
+      background: linear-gradient(135deg, #a855f7, #ec4899);
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .app {
+        padding: 12px;
+      }
+
+      .header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .timeline-header,
+      .timeline-row {
+        grid-template-columns: 70px 1fr 110px 50px;
+      }
+
+      .notes-cell {
+        display: none;
+      }
+
+      .tab {
+        padding: 8px 14px;
+        font-size: 0.8rem;
+      }
+    }
+
+    /* Print styles */
+    @media print {
+      body {
+        background: #fff;
+        color: #000;
+      }
+
+      body::before {
+        display: none;
+      }
+
+      .date-nav button,
+      .delete-btn,
+      .status-dropdown {
+        display: none;
+      }
+
+      .tab:not(.active) {
+        display: none;
+      }
+
+      .timeline-panel {
+        box-shadow: none;
+        border: 1px solid #ccc;
+      }
+
+      .task-cell input,
+      .notes-cell input {
+        border: none;
+        padding: 4px 0;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <!-- Broadcast Banner -->
+    <div id="broadcast-banner"
+      style="display: none; background: rgba(99,102,241,0.1); border-bottom: 1px solid var(--border); padding: 12px 20px; color: var(--text-primary); align-items: center; justify-content: space-between;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="color: var(--accent);">📢</span>
+        <span id="broadcast-text" style="font-weight: 500;"></span>
+      </div>
+      <button id="broadcast-edit-btn"
+        style="display: none; background: transparent; border: 1px solid var(--border); color: var(--text-secondary); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; transition: background 0.2s;"
+        onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'"
+        onclick="editBroadcast()">Edit</button>
+    </div>
+
+    <!-- Header -->
+    <div class="header">
+      <div class="header-left">
+        <div class="logo">TT</div>
+        <h1>Team <span>Tracker</span></h1>
+        <div id="sync-status"
+          style="margin-left: 12px; font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.03); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border);">
+          <span class="dot" style="width:6px;height:6px;border-radius:50%;background:var(--text-muted);"></span>
+          Offline
+        </div>
+        <button id="refresh-btn" title="Refresh data from server"
+          onclick="manualRefresh()"
+          style="margin-left:8px;background:transparent;border:1px solid var(--border);color:var(--text-secondary);padding:4px 12px;border-radius:20px;font-size:0.75rem;cursor:pointer;font-family:inherit;transition:var(--transition);"
+          onmouseover="this.style.background='var(--bg-hover)';this.style.color='var(--text-primary)'"
+          onmouseout="this.style.background='transparent';this.style.color='var(--text-secondary)'">⟳ Refresh</button>
+      </div>
+      <div class="date-nav">
+        <button id="prev-day" title="Previous day">‹</button>
+        <div class="date-display" id="date-display" title="Click to pick date"></div>
+        <input type="date" class="date-input" id="date-input">
+        <button id="next-day" title="Next day">›</button>
+        <button id="today-btn" title="Go to today"
+          style="font-size:0.7rem;font-weight:700;width:auto;padding:0 10px;">TODAY</button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-bar" id="stats-bar">
+      <div class="stat-card accent">
+        <div class="stat-label">Total Tasks</div>
+        <div class="stat-value" id="stat-total">0</div>
+      </div>
+      <div class="stat-card warning">
+        <div class="stat-label">In Progress</div>
+        <div class="stat-value" id="stat-progress">0</div>
+      </div>
+      <div class="stat-card success">
+        <div class="stat-label">Completed</div>
+        <div class="stat-value" id="stat-done">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Pending</div>
+        <div class="stat-value" id="stat-pending">0</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs-container" id="tabs-container"></div>
+
+    <!-- Content -->
+    <div id="content-area"></div>
+  </div>
+
+  <!-- Global Dropdown -->
+  <div class="status-dropdown" id="global-status-dropdown"></div>
+  <div class="status-dropdown" id="global-type-dropdown"></div>
+
+  <script>
+    // ── Config ──
+    const TEAM = ['Kobus', 'Jesaia', 'Anashya', 'Caroline', 'Mbali', 'Gosiame', 'Lefentswe', 'Andile', 'Thabiso', 'Michael'];
+    const HOURS = [];
+    for (let h = 6; h <= 17; h++) HOURS.push(`${String(h).padStart(2, '0')}:00`);
+
+    const TYPES = ['empty', 'daily-task', 'meeting', 'training', 'loading', 'review', 'testing', 'creating-video', 'editing-video', 'support', 'lunch'];
+    const TYPE_LABELS = { empty: '—', 'daily-task': 'Daily Task', meeting: 'Meeting', training: 'Training', loading: 'Loading', review: 'Review', testing: 'Testing', 'creating-video': 'Creating Video', 'editing-video': 'Editing Video', support: 'Support', lunch: 'Lunch' };
+
+    const STATUSES = ['empty', 'in-progress', 'completed'];
+    const STATUS_LABELS = { empty: '—', 'in-progress': 'In Progress', completed: 'Completed' };
+
+    const API_URL = 'https://script.google.com/macros/s/AKfycbwAl9HChtxrHj4c8qM1RdwCzoaMIRGcLgBKknjvakgyO2ocIfn9H6BiNcc_9g_rls5FfQ/exec';
+
+    // ── State ──
+    let currentDate = new Date();
+    let activeTab = 'overview'; // 'overview' or member name
+    let activeDropdownIdx = null;
+    let activeDropdownType = null; // 'status' or 'type'
+    let globalBroadcastMessage = "";
+
+    // ── Storage ──
+    let appDataCache = {};
+    let isSyncing = false;
+
+    function dateKey(d) {
+      const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${dd}`;
+    }
+
+    function getEmptySlots() {
+      return HOURS.map(h => ({ time: h, task: '', type: 'empty', status: 'empty', notes: '' }));
+    }
+
+    function loadMember(date, member) {
+      if (!appDataCache[member]) appDataCache[member] = getEmptySlots();
+      return appDataCache[member];
+    }
+
+    function setSyncStatus(state) {
+      const el = document.getElementById('sync-status');
+      const dot = el.querySelector('.dot');
+      if (state === 'syncing') {
+        el.style.color = 'var(--text-primary)';
+        dot.style.background = 'var(--warning)';
+        dot.style.boxShadow = '0 0 8px var(--warning)';
+        dot.style.animation = 'pulse 1.5s infinite';
+        el.innerText = '';
+        el.appendChild(dot);
+        el.append(' Syncing...');
+      } else if (state === 'synced') {
+        el.style.color = 'var(--text-primary)';
+        dot.style.background = 'var(--success)';
+        dot.style.boxShadow = '0 0 8px var(--success)';
+        dot.style.animation = 'none';
+        el.innerText = '';
+        el.appendChild(dot);
+        el.append(' Synced');
+        // Fade back to subtle after 3s
+        setTimeout(() => {
+          if (!isSyncing) {
+            el.style.color = 'var(--text-muted)';
+            dot.style.background = 'var(--text-muted)';
+            dot.style.boxShadow = 'none';
+          }
+        }, 3000);
+      } else if (state === 'error') {
+        el.style.color = 'var(--danger)';
+        dot.style.background = 'var(--danger)';
+        dot.style.boxShadow = '0 0 8px var(--danger)';
+        dot.style.animation = 'none';
+        el.innerText = '';
+        el.appendChild(dot);
+        el.append(' Error');
+      }
+    }
+
+    function saveMember(date, member, data) {
+      appDataCache[member] = data; // Update local cache instantly (Optimistic UI)
+
+      // Async background sync
+      isSyncing = true;
+      setSyncStatus('syncing');
+
+      const payload = {
+        date: dateKey(date),
+        member: member,
+        tasks: data.filter(t => t.task.trim() || t.type !== 'empty' || t.status !== 'empty' || t.notes.trim())
+      };
+
+      fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify(payload)
+      })
+        .then(res => res.json())
+        .then(json => {
+          isSyncing = false;
+          if (json.status === 'success') setSyncStatus('synced');
+          else setSyncStatus('error');
+        })
+        .catch(err => {
+          console.error("Sync error:", err);
+          isSyncing = false;
+          setSyncStatus('error');
         });
+    }
+
+    function saveBroadcast(msg) {
+      isSyncing = true;
+      setSyncStatus('syncing');
+
+      const payload = {
+        date: dateKey(currentDate),
+        member: 'Kobus',
+        broadcastOnly: true, // Flag to skip row deletion/insertion in Apps Script
+        broadcast: msg
+      };
+
+      fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify(payload)
+      })
+        .then(res => res.json())
+        .then(json => {
+          isSyncing = false;
+          if (json.status === 'success') {
+            setSyncStatus('synced');
+            globalBroadcastMessage = msg;
+            renderBroadcast();
+          } else setSyncStatus('error');
+        })
+        .catch(err => {
+          console.error("Broadcast sync error:", err);
+          isSyncing = false;
+          setSyncStatus('error');
+        });
+    }
+
+    async function loadDateFromAPI(date) {
+      setSyncStatus('syncing');
+
+      // Clear cache for new date immediately and render skeleton
+      appDataCache = {};
+      TEAM.forEach(m => appDataCache[m] = getEmptySlots());
+      render();
+
+      try {
+        const res = await fetch(`${API_URL}?date=${dateKey(date)}`);
+        const json = await res.json();
+
+        if (json.status === 'success' && json.data) {
+          if (json.broadcast !== undefined) {
+            globalBroadcastMessage = json.broadcast;
+          }
+          json.data.forEach(row => {
+            const memberSlots = appDataCache[row.member];
+            if (memberSlots) {
+              const slot = memberSlots.find(s => s.time === row.time);
+              if (slot) {
+                slot.task = row.task || '';
+                slot.type = row.type || 'empty';
+                slot.status = row.status || 'empty';
+                slot.notes = row.notes || '';
+              }
+            }
+          });
+          setSyncStatus('synced');
+        } else {
+          setSyncStatus('error');
+        }
+      } catch (err) {
+        console.error("Load error:", err);
+        setSyncStatus('error');
+      }
+      render(); // Final render with real data
+    }
+
+    // ── Date helpers ──
+    function formatDate(d) {
+      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    }
+    function isToday(d) {
+      const t = new Date();
+      return d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate();
+    }
+    function getCurrentHour() {
+      return `${String(new Date().getHours()).padStart(2, '0')}:00`;
+    }
+
+    // ── Render ──
+    function renderBroadcast() {
+      const banner = document.getElementById('broadcast-banner');
+      const text = document.getElementById('broadcast-text');
+      const btn = document.getElementById('broadcast-edit-btn');
+
+      if (globalBroadcastMessage || activeTab === 'Kobus') {
+        banner.style.display = 'flex';
+        text.innerText = globalBroadcastMessage || "No broadcast message active.";
+        if (!globalBroadcastMessage) text.style.color = "var(--text-muted)";
+        else text.style.color = "var(--text-primary)";
+      } else {
+        banner.style.display = 'none';
+      }
+
+      btn.style.display = activeTab === 'Kobus' ? 'block' : 'none';
+    }
+
+    function updateDateDisplay() {
+      const el = document.getElementById('date-display');
+      el.textContent = formatDate(currentDate);
+      if (isToday(currentDate)) el.textContent += '  •  Today';
+    }
+
+    function getTeamStats(date) {
+      let total = 0, pending = 0, progress = 0, done = 0;
+      TEAM.forEach(m => {
+        const data = loadMember(date, m);
+        data.forEach(slot => {
+          if (slot.task.trim()) {
+            total++;
+            if (slot.status === 'empty') pending++; // 'empty' status now means pending
+            else if (slot.status === 'in-progress') progress++;
+            else if (slot.status === 'completed') done++;
+          }
+        });
+      });
+      return { total, pending, progress, done };
+    }
+
+    function getMemberStats(date, member) {
+      const data = loadMember(date, member);
+      let total = 0, pending = 0, progress = 0, done = 0;
+      data.forEach(slot => {
+        if (slot.task.trim()) {
+          total++;
+          if (slot.status === 'empty') pending++; // 'empty' status now means pending
+          else if (slot.status === 'in-progress') progress++;
+          else if (slot.status === 'completed') done++;
+        }
+      });
+      return { total, pending, progress, done };
+    }
+
+    function updateStats() {
+      let stats;
+      if (activeTab === 'overview') {
+        stats = getTeamStats(currentDate);
+      } else {
+        stats = getMemberStats(currentDate, activeTab);
+      }
+      document.getElementById('stat-total').textContent = stats.total;
+      document.getElementById('stat-progress').textContent = stats.progress;
+      document.getElementById('stat-done').textContent = stats.done;
+      document.getElementById('stat-pending').textContent = stats.pending;
+    }
+
+    function renderTabs() {
+      const container = document.getElementById('tabs-container');
+      container.innerHTML = '';
+
+      // Overview tab
+      const ov = document.createElement('div');
+      ov.className = `tab ${activeTab === 'overview' ? 'active' : ''}`;
+      ov.textContent = '📊 Overview';
+      ov.onclick = () => { activeTab = 'overview'; render(); };
+      container.appendChild(ov);
+
+      TEAM.forEach(member => {
+        const tab = document.createElement('div');
+        const stats = getMemberStats(currentDate, member);
+        tab.className = `tab ${activeTab === member ? 'active' : ''}`;
+        tab.innerHTML = `${member}${stats.total > 0 ? `<span class="task-count">${stats.total}</span>` : ''}`;
+        tab.onclick = () => { activeTab = member; render(); };
+        container.appendChild(tab);
+      });
+    }
+
+    function renderOverview() {
+      const area = document.getElementById('content-area');
+      const curHour = getCurrentHour();
+      let html = '<div class="overview-grid">';
+      TEAM.forEach((member, i) => {
+        const data = loadMember(currentDate, member);
+        const stats = getMemberStats(currentDate, member);
+        const tasks = data.filter(s => s.task.trim());
+        const initials = member.slice(0, 2).toUpperCase();
+        html += `
+          <div class="member-overview-card" onclick="activeTab='${member}';render();">
+            <h3><span class="avatar avatar-${i}"> ${initials}</span> ${member}</h3>
+            <div class="mini-stats">
+              <div class="mini-stat"><strong>${stats.total}</strong>Tasks</div>
+              <div class="mini-stat"><strong style="color:var(--warning)">${stats.progress}</strong>Active</div>
+              <div class="mini-stat"><strong style="color:var(--success)">${stats.done}</strong>Done</div>
+            </div>
+            <div class="task-preview">
+              ${tasks.length === 0 ? '<div style="color:var(--text-muted);font-style:italic;">No tasks scheduled</div>' : ''}
+              ${tasks.slice(0, 3).map(t => `
+                <div class="preview-item">
+                  <span class="preview-time">${t.time}</span>
+                  <span class="dot" style="width:6px;height:6px;border-radius:50%;background:${t.status === 'completed' ? 'var(--success)' : t.status === 'in-progress' ? 'var(--warning)' : 'var(--pending)'}"></span>
+                  <span>${t.task}</span>
+                </div>
+              `).join('')}
+              ${tasks.length > 3 ? `<div style="color:var(--text-muted);margin-top:4px;">+${tasks.length - 3} more</div>` : ''}
+            </div>
+          </div>`;
+      });
+      html += '</div>';
+      area.innerHTML = html;
+    }
+
+    function renderTimeline(member) {
+      const area = document.getElementById('content-area');
+      const data = loadMember(currentDate, member);
+      const curHour = getCurrentHour();
+      const showCurrentHour = isToday(currentDate);
+      // Textareas need resize after innerHTML is set
+      setTimeout(resizeAllTextareas, 0);
+
+      let html = `<div class="timeline-panel">
+        <div class="timeline-header">
+          <div>Time</div>
+          <div>Task</div>
+          <div>Type</div>
+          <div>Status</div>
+          <div></div>
+        </div>`;
+
+      data.forEach((slot, idx) => {
+        const isCurrent = showCurrentHour && slot.time === curHour;
+        const statusClass = slot.status || 'empty';
+        const typeClass = slot.type || 'empty';
+        html += `
+          <div class="timeline-row ${isCurrent ? 'current-hour' : ''}" data-idx="${idx}">
+            <div class="time-cell">${slot.time}</div>
+            <div class="task-cell">
+              <textarea placeholder="Add task..."
+                     data-field="task" data-idx="${idx}"
+                     oninput="handleInput(this)" onblur="handleBlur(this)"
+                     onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}">${escapeHtml(slot.task)}</textarea>
+            </div>
+            <div class="type-cell">
+              <div class="type-badge ${typeClass}" onclick="toggleDropdown(event, ${idx}, 'type')">
+                <span class="dot"></span>
+                <span>${TYPE_LABELS[typeClass]}</span>
+              </div>
+            </div>
+            <div class="status-cell">
+              <div class="status-badge ${statusClass}" onclick="toggleDropdown(event, ${idx}, 'status')">
+                <span class="dot"></span>
+                <span>${STATUS_LABELS[statusClass]}</span>
+              </div>
+            </div>
+            <div class="delete-cell">
+              <button class="delete-btn" onclick="clearSlot(${idx})" title="Clear slot">✕</button>
+            </div>
+          </div>`;
+      });
+
+      html += '</div>';
+      area.innerHTML = html;
+
+      // Scroll current hour into view
+      if (showCurrentHour) {
+        const cur = area.querySelector('.current-hour');
+        if (cur) cur.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }
 
-  } catch (error) {
-    result = { status: "error", message: error.toString() };
-  }
+    function initGlobalDropdowns() {
+      const statusDd = document.getElementById('global-status-dropdown');
+      statusDd.innerHTML = STATUSES.map(s => `
+        <div class="option" onclick="handleStatusSelect('${s}')">
+          <span class="dot" style="width:7px;height:7px;border-radius:50%;background:${s === 'completed' ? 'var(--success)' : s === 'in-progress' ? 'var(--warning)' : 'var(--text-muted)'}"></span>
+          ${STATUS_LABELS[s]}
+        </div>
+      `).join('');
 
-  return ContentService.createTextOutput(JSON.stringify(result))
-    .setMimeType(ContentService.MimeType.JSON);
-}
+      const typeDd = document.getElementById('global-type-dropdown');
+      typeDd.innerHTML = TYPES.map(t => `
+        <div class="option" onclick="handleTypeSelect('${t}')">
+          <span class="dot" style="width:7px;height:7px;border-radius:50%;background:${t === 'daily-task' ? 'var(--daily-task)' : t === 'meeting' ? 'var(--meeting)' : t === 'training' ? 'var(--training)' : t === 'loading' ? 'var(--loading)' : t === 'review' ? 'var(--review)' : t === 'testing' ? '#f59e0b' : t === 'creating-video' ? '#ef4444' : t === 'editing-video' ? '#8b5cf6' : t === 'support' ? '#10b981' : t === 'lunch' ? '#d97706' : 'var(--text-muted)'}"></span>
+          ${TYPE_LABELS[t]}
+        </div>
+      `).join('');
+    }
 
-function doOptions(e) {
-  return ContentService.createTextOutput()
-    .setMimeType(ContentService.MimeType.TEXT)
-    .setContent('');
-}
+    function render() {
+      if (!document.getElementById('global-status-dropdown').innerHTML) {
+        initGlobalDropdowns();
+      }
+      updateDateDisplay();
+      renderBroadcast();
+      renderTabs();
+      updateStats();
+      if (activeTab === 'overview') {
+        renderOverview();
+      } else {
+        renderTimeline(activeTab);
+      }
+    }
 
-// No replacement, deleting duplicate doOptions
+    // ── Handlers ──
+    function editBroadcast() {
+      const newMsg = prompt("Enter new broadcast message (leave empty to clear):", globalBroadcastMessage);
+      if (newMsg !== null) {
+        saveBroadcast(newMsg);
+      }
+    }
 
-// Setup function to run once to create headers
-function setupSheet() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(["Date", "Member", "Time", "Task", "Type", "Status", "Notes"]);
-    sheet.getRange("A1:G1").setFontWeight("bold");
-    sheet.setFrozenRows(1);
-  }
-}
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function autoResize(el) {
+      el.style.height = 'auto';
+      el.style.height = (el.scrollHeight) + 'px';
+    }
+
+    // Auto-resize all textareas after render
+    function resizeAllTextareas() {
+      document.querySelectorAll('.task-cell textarea').forEach(autoResize);
+    }
+
+    let saveTimeout = null;
+    function handleInput(el) {
+      autoResize(el);
+      if (saveTimeout) clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(() => handleBlur(el), 800);
+    }
+    function handleBlur(el) {
+      if (saveTimeout) clearTimeout(saveTimeout);
+      const idx = parseInt(el.dataset.idx);
+      const field = el.dataset.field;
+      const data = loadMember(currentDate, activeTab);
+      data[idx][field] = el.value;
+      // Status stays as 'empty' ("—") until the user explicitly picks one
+      saveMember(currentDate, activeTab, data);
+      // Light refresh: update stats and tab counts without full re-render
+      updateStats();
+      renderTabs();
+    }
+
+    function toggleDropdown(evt, idx, fieldType) {
+      evt.stopPropagation();
+      const ddId = fieldType === 'type' ? 'global-type-dropdown' : 'global-status-dropdown';
+      const dd = document.getElementById(ddId);
+
+      // Close the other dropdown if open
+      const otherDdId = fieldType === 'type' ? 'global-status-dropdown' : 'global-type-dropdown';
+      document.getElementById(otherDdId).classList.remove('show');
+
+      if (activeDropdownIdx === idx && activeDropdownType === fieldType && dd.classList.contains('show')) {
+        dd.classList.remove('show');
+        activeDropdownIdx = null;
+        activeDropdownType = null;
+        return;
+      }
+
+      activeDropdownIdx = idx;
+      activeDropdownType = fieldType;
+      const badge = evt.currentTarget;
+      const badgeRect = badge.getBoundingClientRect();
+
+      dd.style.left = badgeRect.left + 'px';
+      dd.classList.add('show');
+
+      const ddRect = dd.getBoundingClientRect();
+      if (badgeRect.bottom + ddRect.height > window.innerHeight - 10) {
+        dd.style.top = (badgeRect.top - ddRect.height - 4) + 'px';
+      } else {
+        dd.style.top = (badgeRect.bottom + 4) + 'px';
+      }
+    }
+
+    function handleTypeSelect(type) {
+      if (activeDropdownIdx === null || activeDropdownType !== 'type') return;
+      const data = loadMember(currentDate, activeTab);
+      data[activeDropdownIdx].type = type;
+      saveMember(currentDate, activeTab, data);
+      document.getElementById('global-type-dropdown').classList.remove('show');
+      activeDropdownIdx = null;
+      activeDropdownType = null;
+      render();
+    }
+
+    function handleStatusSelect(status) {
+      if (activeDropdownIdx === null || activeDropdownType !== 'status') return;
+      setStatus(activeDropdownIdx, status);
+      document.getElementById('global-status-dropdown').classList.remove('show');
+      activeDropdownIdx = null;
+      activeDropdownType = null;
+    }
+
+    function setStatus(idx, status) {
+      const data = loadMember(currentDate, activeTab);
+      data[idx].status = status;
+      saveMember(currentDate, activeTab, data);
+      render();
+    }
+
+    function clearSlot(idx) {
+      const data = loadMember(currentDate, activeTab);
+      data[idx] = { time: HOURS[idx], task: '', type: 'empty', status: 'empty', notes: '' };
+      saveMember(currentDate, activeTab, data);
+      render();
+    }
+
+    // Close dropdowns on outside click
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.status-cell') && !e.target.closest('.type-cell') && !e.target.closest('.status-dropdown')) {
+        document.getElementById('global-status-dropdown').classList.remove('show');
+        document.getElementById('global-type-dropdown').classList.remove('show');
+        activeDropdownIdx = null;
+        activeDropdownType = null;
+      }
+    });
+
+    // ── Date navigation ──
+    document.getElementById('prev-day').onclick = () => {
+      currentDate.setDate(currentDate.getDate() - 1);
+      loadDateFromAPI(currentDate);
+    };
+    document.getElementById('next-day').onclick = () => {
+      currentDate.setDate(currentDate.getDate() + 1);
+      loadDateFromAPI(currentDate);
+    };
+    document.getElementById('today-btn').onclick = () => {
+      currentDate = new Date();
+      loadDateFromAPI(currentDate);
+    };
+    document.getElementById('date-display').onclick = () => {
+      const inp = document.getElementById('date-input');
+      inp.value = dateKey(currentDate);
+      inp.style.pointerEvents = 'auto';
+      inp.style.opacity = '1';
+      inp.showPicker?.();
+      inp.focus();
+    };
+    document.getElementById('date-input').onchange = (e) => {
+      if (e.target.value) {
+        const parts = e.target.value.split('-');
+        currentDate = new Date(parts[0], parts[1] - 1, parts[2]);
+        e.target.style.pointerEvents = 'none';
+        e.target.style.opacity = '0';
+        loadDateFromAPI(currentDate);
+      }
+    };
+    document.getElementById('date-input').onblur = (e) => {
+      e.target.style.pointerEvents = 'none';
+      e.target.style.opacity = '0';
+    };
+
+    // ── Keyboard navigation ──
+    document.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      if (e.key === 'ArrowLeft') {
+        currentDate.setDate(currentDate.getDate() - 1);
+        loadDateFromAPI(currentDate);
+      } else if (e.key === 'ArrowRight') {
+        currentDate.setDate(currentDate.getDate() + 1);
+        loadDateFromAPI(currentDate);
+      }
+    });
+
+    // ── Silent background refresh (no UI skeleton wipe) ──
+    async function refreshDataFromAPI() {
+      try {
+        const res = await fetch(`${API_URL}?date=${dateKey(currentDate)}&_t=${Date.now()}`);
+        const json = await res.json();
+        if (json.status === 'success' && json.data) {
+          if (json.broadcast !== undefined) globalBroadcastMessage = json.broadcast;
+          const freshCache = {};
+          TEAM.forEach(m => freshCache[m] = getEmptySlots());
+          json.data.forEach(row => {
+            const memberSlots = freshCache[row.member];
+            if (memberSlots) {
+              const slot = memberSlots.find(s => s.time === row.time);
+              if (slot) {
+                slot.task = row.task || '';
+                slot.type = row.type || 'empty';
+                slot.status = row.status || 'empty';
+                slot.notes = row.notes || '';
+              }
+            }
+          });
+          appDataCache = freshCache;
+          render();
+          setSyncStatus('synced');
+        }
+      } catch (err) {
+        // Silent fail on background refresh
+      }
+    }
+
+    function manualRefresh() {
+      setSyncStatus('syncing');
+      refreshDataFromAPI();
+    }
+
+    // Auto-refresh every 60 seconds without reloading the page
+    setInterval(refreshDataFromAPI, 60000);
+
+    // ── Init ──
+    loadDateFromAPI(currentDate);
+  </script>
+</body>
+
+</html>
