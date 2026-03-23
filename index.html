@@ -1491,6 +1491,11 @@
 
     // ── Silent background refresh (no UI skeleton wipe) ──
     async function refreshDataFromAPI() {
+      // Prevent overwriting local data if the user is currently typing or if a sync is already in progress
+      if (isSyncing || (document.activeElement && (document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'INPUT'))) {
+        return;
+      }
+      
       try {
         const res = await fetch(`${API_URL}?date=${dateKey(currentDate)}&_t=${Date.now()}`);
         const json = await res.json();
