@@ -1069,7 +1069,7 @@
       render();
 
       try {
-        const res = await fetch(`${API_URL}?date=${dateKey(date)}`);
+        const res = await fetch(`${API_URL}?date=${dateKey(date)}&_t=${Date.now()}`);
         const json = await res.json();
 
         if (json.status === 'success' && json.data) {
