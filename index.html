@@ -1417,10 +1417,12 @@
           data.forEach(slot => {
             slot.type = 'leave';
             slot.task = slot.task || 'On Leave';
+            slot.status = 'completed';
           });
         } else {
           data[activeDropdownIdx].type = type;
           data[activeDropdownIdx].task = data[activeDropdownIdx].task || 'On Leave';
+          data[activeDropdownIdx].status = 'completed';
         }
       } else {
         data[activeDropdownIdx].type = type;
