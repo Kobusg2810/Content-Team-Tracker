@@ -570,6 +570,15 @@
       background: #d97706;
     }
 
+    .type-badge.leave {
+      background: rgba(148, 163, 184, 0.15);
+      color: #94a3b8;
+    }
+
+    .type-badge.leave .dot {
+      background: #94a3b8;
+    }
+
     @keyframes pulse {
 
       0%,
@@ -922,8 +931,8 @@
     const HOURS = [];
     for (let h = 6; h <= 17; h++) HOURS.push(`${String(h).padStart(2, '0')}:00`);
 
-    const TYPES = ['empty', 'daily-task', 'meeting', 'training', 'loading', 'review', 'testing', 'creating-video', 'editing-video', 'support', 'lunch'];
-    const TYPE_LABELS = { empty: '—', 'daily-task': 'Daily Task', meeting: 'Meeting', training: 'Training', loading: 'Loading', review: 'Review', testing: 'Testing', 'creating-video': 'Creating Video', 'editing-video': 'Editing Video', support: 'Support', lunch: 'Lunch' };
+    const TYPES = ['empty', 'daily-task', 'meeting', 'training', 'loading', 'review', 'testing', 'creating-video', 'editing-video', 'support', 'lunch', 'leave'];
+    const TYPE_LABELS = { empty: '—', 'daily-task': 'Daily Task', meeting: 'Meeting', training: 'Training', loading: 'Loading', review: 'Review', testing: 'Testing', 'creating-video': 'Creating Video', 'editing-video': 'Editing Video', support: 'Support', lunch: 'Lunch', leave: 'Leave' };
 
     const STATUSES = ['empty', 'in-progress', 'completed'];
     const STATUS_LABELS = { empty: '—', 'in-progress': 'In Progress', completed: 'Completed' };
@@ -1305,7 +1314,7 @@
       const typeDd = document.getElementById('global-type-dropdown');
       typeDd.innerHTML = TYPES.map(t => `
         <div class="option" onclick="handleTypeSelect('${t}')">
-          <span class="dot" style="width:7px;height:7px;border-radius:50%;background:${t === 'daily-task' ? 'var(--daily-task)' : t === 'meeting' ? 'var(--meeting)' : t === 'training' ? 'var(--training)' : t === 'loading' ? 'var(--loading)' : t === 'review' ? 'var(--review)' : t === 'testing' ? '#f59e0b' : t === 'creating-video' ? '#ef4444' : t === 'editing-video' ? '#8b5cf6' : t === 'support' ? '#10b981' : t === 'lunch' ? '#d97706' : 'var(--text-muted)'}"></span>
+          <span class="dot" style="width:7px;height:7px;border-radius:50%;background:${t === 'daily-task' ? 'var(--daily-task)' : t === 'meeting' ? 'var(--meeting)' : t === 'training' ? 'var(--training)' : t === 'loading' ? 'var(--loading)' : t === 'review' ? 'var(--review)' : t === 'testing' ? '#f59e0b' : t === 'creating-video' ? '#ef4444' : t === 'editing-video' ? '#8b5cf6' : t === 'support' ? '#10b981' : t === 'lunch' ? '#d97706' : t === 'leave' ? '#94a3b8' : 'var(--text-muted)'}"></span>
           ${TYPE_LABELS[t]}
         </div>
       `).join('');
@@ -1402,7 +1411,21 @@
     function handleTypeSelect(type) {
       if (activeDropdownIdx === null || activeDropdownType !== 'type') return;
       const data = loadMember(currentDate, activeTab);
-      data[activeDropdownIdx].type = type;
+
+      if (type === 'leave') {
+        if (confirm("Set the entire day to Leave?")) {
+          data.forEach(slot => {
+            slot.type = 'leave';
+            slot.task = slot.task || 'On Leave';
+          });
+        } else {
+          data[activeDropdownIdx].type = type;
+          data[activeDropdownIdx].task = data[activeDropdownIdx].task || 'On Leave';
+        }
+      } else {
+        data[activeDropdownIdx].type = type;
+      }
+
       saveMember(currentDate, activeTab, data);
       document.getElementById('global-type-dropdown').classList.remove('show');
       activeDropdownIdx = null;
